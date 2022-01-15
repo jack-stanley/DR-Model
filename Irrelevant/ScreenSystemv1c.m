@@ -1,0 +1,27 @@
+function totalCostQALY = testScreeningStrategies
+POPMIZ1 = 1;
+POPMIZ2 = 2;
+POPMIZ3 = 3;
+POPMIZ4 = 4;
+POPURBAN = 5;
+POPHEALTHY = 1;
+POPUNHEALTHY = 2;
+POPCOMPLIANT = 1;
+POPUNCOMPLIANT = 2;
+SCREENOPHTH = 1;
+SCREENOPTOM = 2;
+SCREENTELE = 3;
+SCREENNONE = 4;
+nregions = 3;
+rnames = ['Capitale-Nationale ', 'Monteregie ', 'Montreal '];
+rcensus = [1442433 700616 1886481]; %only changed these values to r because they refer to the geographical regions. Rest of data uses MIZ values to refer to type of population. 
+plocs = [POPMIZ1, POPMIZ2, POPURBAN];
+phealths = [POPHEALTHY];
+pcomps = [POPCOMPLIANT];
+pdmrisks = [5.2 5.0 4.8]; %Age-standardized prevalence (per 100) for MIZ1, MIZ2, Urban
+pscreens = [SCREENOPHTH]; %make it so that screen type is always column, population always row. Necessary?
+putils_MIZ1 = [1 1 1 1 1 1 .45 0];
+putils_MIZ2 = [1 1 1 1 1 1 .50 0];
+putils_URBAN = [1 1 1 1 1 1 .54 0];
+utils = [putils_URBAN];
+ScreenSystemv1c(nregions,rnames,rsizes,plocs,phealths,pcomps,pdmrisks,pscreens,putils)

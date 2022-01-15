@@ -1,0 +1,13 @@
+function rvect = randomize(vect,SD,lowerlim,upperlim,singlerand)
+% Takes a vector and a SD, and returns a vector where each element is
+% randomized by the amount of the SD. 
+% Elements are constrained between lowerlim and upperlim.
+% If singlerand is true, then a single random number is used for the whole
+% vector. If false, then each element is independently randomized.
+
+if singlerand
+    rvect = max(0,vect + vect * max(0.5,randn()) * SD); % We allow the prevalence to go down by 50%, up by any amount
+
+
+end
+

@@ -1,0 +1,238 @@
+
+function totalCostQALYBlind = screenSystemV2b(nregions,rnames,rcensuses,rpops,rhealths,rcomps,rDMrisks,rscreens,rutils,rSDutils,rSDdemos)
+%function screenSystem simulates the screening for an entire health system
+%It is called by a function that compares different screening strategies and assignments 
+%  ARGUMENTS
+%   nregions - Number of regions within the health system
+%   rnames - Vector of names of each regions e.g. Montreal, North Quebec
+%   'MONTREAL', 'XXXX', 'STJAMES BAY' ***UNUSED
+%   rcensuses - Vector of census of each region
+%   rpops - Vector of population type of each regions e.g. MIZ1 = 1; POPURBAN = 5; POPRURAL, POPDISP
+%   rhealths - Vector of health type of each regions e.g. POPHEALTHY, POPUNHEALTHY
+%   rcomps - Vector of adherence/compliance type of each regions, e.g. POPCOMPLIANT, POPUNCOMPLIANT
+%   rDMrisks - Vector of overall diabetes risk of each regions, as proportion
+%   rscreens - Vector of screening method to be used for each regions e.g. SCREENOPHTH SCREENOPTOM SCREENTELE SCREENNONE
+%   NOTE that for now, if more than one screening method is used in each
+%   regions, then create multiple regions, each with a different
+%   screening method, and give names such as MontrealSC1, MontrealSC2, etc
+%   rutils - Vector of which utilities should be used for each regions, e.g. POPFEARBLIND
+%   rSDutils - Vector of standard deviations to be used for utilities
+%   rSDdemos - Vector of standard deviations to be used for demographic variables
+
+% %% RETURNS
+%  2-part vector of costs and QALYs, both per person
+
+% USES FOLLOWING DEFINED VARIABLES a lot of these are already in diabetes
+% or doMarkov
+%   NSTAGES - number of stages in diabetic retinopathy
+%   utilPercept - a matrix of the perception of utilities for each stage, for each population
+%   ageDistrib - a matrix of age distributions for different population types
+%   costTypeScreen - a vector of costs per screen for different population
+%   locations 
+%   costTypeFA - a vector of costs per fluorescein angiogram for different population locations
+%   costTypeFocal - a vector of costs per focal laser for different population locations
+%   costTypeScatter - a vector of costs per scatter laser for different population locations
+%   utilPercept - a vector of utilities for different population healths, for each stage of disease
+%   initScreenInt - vector of the initial screening interval in years for each screening method
+%   diabetesByAge - a vector of diabetes prevalence by age in a baseline population
+%   startingAges - a vector of proportion of population at each age
+%       THIS SHOULD EVENTUALLY BE RELATED TO POPHEALTH
+%	stage2ByAge - a vector of proportion of patients at stage 2 at each age
+%   mortByAge - a vector of risk of dying at each age
+%   mortMult - Mortality multipliers, where DM alone is 1.8 x chance of dying at each stage, multiplied
+%       by the chance of dying just from diabetes alone
+%   tpm - transition probability matrix CHANGES BASED ON HEALTH STATUS
+%       AND PRIOR LASER
+%   utilSD - standard deviation of utilities
+%   
+
+%% First make sure each argument has the same number of regions
+if ~all([size(rnames,1),size(rcensuses,1),size(rpops,1),size(rhealths,1),size(rcomps,1),size(rDMrisks,1),size(rscreens,1),size(rutils,1),size(rSDutils,1),size(rSDdemos,1)] == nregions)
+    error('screenSystem called with arguments not equalling nregions %d\n',nregions);
+end
+%% Define population constants
+POPMIZ1 = 1;
+POPMIZ2 = 2;
+POPMIZ3 = 3;
+POPMIZ4 = 4;
+POPURBAN = 5;
+POPCOMPLIANTHIGH = 1;
+POPCOMPLIANTMED = 2;
+POPCOMPLIANTLOW = 3;
+%% Define screening constants
+SCREENOPHTH = 1;
+SCREENOPTOM = 2;
+SCREENTELE = 3;
+SCREENNONE = 4;
+SCREENGP = 5;
+
+%% Define utility values based on region type
+UTILFEARBLIND = 1;
+UTILNEUTRBLIND = 2;
+UTILSTOICBLIND = 3;
+UTILCURVE = [1 1 1 1 1 1 .34 0; 1 1 1 1 1 1 .54 0; 1 1 1 1 1 1 .74 0];
+
+%% Define costs
+% For now, assume only URBAN, MIZ1, MIZ2, and MIZ3 can do treatments and FA
+% Each row in COSTSCREENBYPOP is a different population. Each column is the
+% different screening methods.
+% Later simply add base cost to travel cost
+COSTSCREENBYPOP = [100 75 75 0; 100 75 75 0; 100 75 75 0; 2100 1075 75 0; 100 75 75 0]; 
+
+% Each row in COSTPROCBYPOP is a different population. Each column is a
+% different procedure. Note that costs of screening is in COSTSCREENBYPOP
+% First column is COST_FA
+% Second column is COST_FOCAL
+% Third column is COST_SCATTER
+COSTPROCBYPOP = [200 500 500; 200 500 500; 200 500 500; 2200 2500 2500; 200 500 500]; 
+
+%% Define screening data
+% Screebing sensitivities/specificities as a matrix
+%Given the screen type, the row is the true stage and the columns are the chance of each measured stage
+screenAcc_screenOphth = [1 0 0 0 0 0 0 0;
+    0.1 0.8 .1 0 0 0 0 0;
+    0.1 0.1 0.8 0 0 0 0 0;
+    0.05 0.05 0.1 0.8 0 0 0 0;
+    0.05 0 0.05 0.1 0.8 0 0 0;
+    0.1 0.1 0.1 0.1 0 0.6 0 0;
+    0 0 0 0 0 0 1 0;
+    0 0 0 0 0 0 0 1];
+screenAcc_screenOptom = [0.90 0.055 0 0 0.003 0.21/5 0 0;
+    0.25 0.681 0 0 0.02/3 0.21/5 0 0;
+    0.25 0 0.681 0 0.02/3 0.21/5 0 0;
+    0.25 0 0 0.681 0.02/3 0.21/5 0 0;
+    0.2 0.1 0.1 0.1 0.5 0 0 0;
+    0.4 0.05 0.05 0.05 0.05 0.4 0 0;
+    0 0 0 0 0 0 1 0;
+    0 0 0 0 0 0 0 1];
+screenAcc_screenTele = ...% Assume perfect screening
+    [1 0 0 0 0 0 0 0;
+    0 1 0 0 0 0 0 0;
+    0 0 1 0 0 0 0 0;
+    0 0 0 1 0 0 0 0;
+    0 0 0 0 1 0 0 0;
+    0 0 0 0 0 1 0 0;
+    0 0 0 0 0 0 1 0;
+    0 0 0 0 0 0 0 1];
+screenAcc_screenNone = [1 0 0 0 0 0 0 0; 
+    1 0 0 0 0 0 0 0;
+    1 0 0 0 0 0 0 0;
+    1 0 0 0 0 0 0 0;
+    1 0 0 0 0 0 0 0;
+    1 0 0 0 0 0 0 0;
+    0 0 0 0 0 0 1 0;
+    0 0 0 0 0 0 0 1]; %always assume healthy until blind or dead with no screening
+screenAcc_screenGP = [1 0 0 0 0 0 0 0; 
+    1 0 0 0 0 0 0 0;
+    1 0 0 0 0 0 0 0;
+    .8 0 0 0 .2 0 0 0;
+    .8 0 0 0 .2 0 0 0;
+    1 0 0 0 0 0 0 0;
+    0 0 0 0 0 0 1 0;
+    0 0 0 0 0 0 0 1]; %always assume healthy until blind or dead with no screening
+
+screenAcc(:,:,1) = screenAcc_screenOphth./sum(screenAcc_screenOphth,2); % Normalize to sum to 1
+screenAcc(:,:,2) = screenAcc_screenOptom./sum(screenAcc_screenOptom,2);
+screenAcc(:,:,3) = screenAcc_screenTele./sum(screenAcc_screenTele,2);
+screenAcc(:,:,4) = screenAcc_screenNone./sum(screenAcc_screenNone,2);
+screenAcc(:,:,5) = screenAcc_screenGP./sum(screenAcc_screenGP,2);
+
+%Initial screening intervals for each screen type
+initScreenInt = [1 1 2 1 5];
+
+%% Define epidemiology
+% Probability that someone at a given age has diabetes
+DMByAge = [1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 ...
+    1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 ...
+    1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 1.6 12.2 12.2 12.2 12.2 12.2 12.2 ...
+    12.2 12.2 12.2 12.2 12.2 12.2 12.2 12.2 12.2 12.2 12.2 12.2 12.2 12.2 ...
+    21.8 21.8 21.8 21.8 21.8 21.8 21.8 21.8 21.8 21.8 20 20 20 20 20 20 20 ...    
+    20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 20 ...
+    20 20 20 20 20 20 20 20 20 20 20 20 20 20 20]/100;
+
+
+% Proportion of population at a given age (e.g. 0.013 of population between 0-1
+% years old)
+% Note that for the whole population, chance that someone is that age and has diabetes
+% is the product of DMByAge and startAges
+startAges = [0.013 0.013 0.013 0.013 0.0132 0.0132 0.0132 0.0132 0.0132 ...
+    0.0134 0.0134 0.0134 0.0134 0.0134 0.0142 0.0142 0.0142 0.0142 0.0142 ...
+    0.014 0.014 0.014 0.014 0.014 0.0136 0.0136 0.0136 0.0136 0.0136 0.013 ...
+    0.013 0.013 0.013 0.013 0.013 0.013 0.013 0.013 0.013 0.0136 0.0136 ...
+    0.0136 0.0136 0.0136 0.0148 0.0148 0.0148 0.0148 0.0148 0.0144 0.0144 ...
+    0.0144 0.0144 0.0144 0.0128 0.0128 0.0128 0.0128 0.0128 0.0108 0.0108 ...
+    0.0108 0.0108 0.0108 0.008 0.008 0.008 0.008 0.008 0.006 0.006 0.006 ...
+    0.006 0.006 0.0048 0.0048 0.0048 0.0048 0.0048 0.0038 0.0038 0.0038 ...
+    0.0038 0.0038 0.0005 0.0005 0.0005 0.0005 0.0005 0.0005 ...
+    0.0001 0.0001 0.0001 0.0001 0.0001 0.0001 0.00005 0.00005 0.00005 0.00005 ...
+    0.00001 0.00001 0.00001 0.00001 0.00001 0.00001 0.00001 0.000005 0.000005 0.000001 ...
+    0.000001 0.000001 0.000001 0.000001 0 0 0 0 0 0]/100;
+
+
+% Mortality by age
+MortByAge = [26.5 26.5 26.5 26.5 ...
+12.9 12.9 12.9 12.9 12.9 12.9 12.9 12.9 12.9 12.9 ...
+67.7 67.7 67.7 67.7 67.7 67.7 67.7 67.7 67.7 67.7 ...
+102.9 102.9 102.9 102.9 102.9 102.9 102.9 102.9 102.9 102.9 ...
+170.5 170.5 170.5 170.5 170.5 170.5 170.5 170.5 170.5 170.5 ...
+407.1 407.1 407.1 407.1 407.1 407.1 407.1 407.1 407.1 407.1 ...
+851.9 851.9 851.9 851.9 851.9 851.9 851.9 851.9 851.9 851.9 ...
+1875.1 1875.1 1875.1 1875.1 1875.1 1875.1 1875.1 1875.1 1875.1 1875.1 ...
+4790.2 4790.2 4790.2 4790.2 4790.2 4790.2 4790.2 4790.2 4790.2 4790.2 ...
+13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 ...
+13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 ...
+13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 13934.3 ...
+50000 50000 50000 50000 50000 50000 50000 60000 70000 100000]/100000;
+
+%% Define morbidity based on health status (POPHEALTHY, ETC)
+POPHEALTHY = 1;
+POPUNHEALTHY = 2;
+POPVERYHEALTHY = 3;
+POPVERYUNHEALTHY = 4;
+HEALTHMORBIDITY = [1 3 0.333 5]; % Health status affects the transition probabilities used in doMarkov
+                                    % Note that a value higher than 5
+                                    % messes up the tpm based on how
+                                    % maketpm works
+
+%% Initialize
+totalCostQALYBlind = [0 0 0 0]; % Cost QALY Unilateral blind Bilateral blind
+totalCensus = 0;
+
+ %% Perform simulations for each region and sum utilities and costs
+ for reg = 1:nregions % For each region we will perform a simulation
+    regName = rnames{reg}; %Note that rnames is an array of cells. We do this because of how Matlab handles strings
+    regCensus = rcensuses(reg);
+    regPop = rpops(reg); %makes it easier to read later on
+    regUtil = UTILCURVE(rutils(reg),:);
+    regSDutil = rSDutils(reg);
+    regSDdemo = rSDdemos(reg);
+    regScreen = rscreens(reg);
+    regHealth = rhealths(reg);
+    regMorbidity = HEALTHMORBIDITY(regHealth);
+    costsPerProc = COSTPROCBYPOP(regPop,:);
+    costsPerScreen = COSTSCREENBYPOP(regPop,regScreen);
+    regComp = rcomps(reg); % ***Not currently used***
+    regDMrisk = rDMrisks(reg);
+
+%% Use SD variables to build in variability by region
+    regUtilSD = [0 0 0 0 0 0 regSDutil 0]; 
+    
+    regDMByAge = max(0,DMByAge + DMByAge * max(0.5,randn()) * regSDdemo); % We allow the prevalence to go down by 50%, up by any am
+    
+    npatients = ceil(regCensus * regDMrisk);
+    costQALYBlind = doMarkov5b(npatients,regUtil,regUtilSD,costsPerProc,costsPerScreen,regDMByAge.*startAges,...
+        MortByAge,screenAcc(:,:,regScreen),initScreenInt(regScreen),regMorbidity);
+    % Note that eventually each region's health type should have its own
+    % prevalence of DM by age and mortality by age
+    totalCostQALYBlind = totalCostQALYBlind + [sum(costQALYBlind(1,:)) * npatients sum(costQALYBlind(2,:)) * npatients sum(costQALYBlind(3,:)) sum(costQALYBlind(4,:))]; 
+        % Running sum of  cost, QALY, and number blind in the vector
+    totalCensus = totalCensus + npatients; % Keep a running sum of all region censuses of diabetic patients
+ end
+ 
+ totalCostQALYBlind = [totalCostQALYBlind(1:2) / totalCensus totalCostQALYBlind(3:4)]; % Cost and QALY are per diabetic patient; number blind is total
+ 
+
+
+
+
+

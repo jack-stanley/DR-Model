@@ -1,0 +1,58 @@
+function doPortfolioAnalysis
+% doPortfolionAnalysis attempts different strategies to optimize value (outcomes/cost) in a screening system
+% It calls screenSystem with the various strategies
+parpool % Set up p
+
+POPMIZ1 = 1;
+POPMIZ2 = 2;
+POPMIZ3 = 3;
+POPMIZ4 = 4;
+POPURBAN = 5;
+POPHEALTHY = 1;
+POPUNHEALTHY = 2;
+POPVERYHEALTHY = 3;
+POPVERYUNHEALTHY = 4;
+POPCOMPLIANT = 1;
+POPUNCOMPLIANT = 2;
+SCREENOPHTH = 1;
+SCREENOPTOM = 2;
+SCREENTELE = 3;
+SCREENNONE = 4;
+UTILFEARBLIND = 1;
+UTILNEUTRBLIND = 2;
+UTILSTOICBLIND = 3;
+
+%% Define ICER calculation parameters
+NREPEATS = 3; % How many times we repeat the calculations to ensure low variability
+NSTRATEGIES = 2; % How many strategies we have. Assume strategy 1 is the base strategy
+
+cost = zeros(NSTRATEGIES,NREPEATS);
+qaly = zeros(NSTRATEGIES,NREPEATS);
+costMean = zeros(NSTRATEGIES);
+qalyMean = zeros(NSTRATEGIES);
+for i = 1:3
+    costQaly = screenSystemV1h(2,{'Montreal1','Montreal2'},[1000000,200000],[POPMIZ1,POPMIZ1],[POPHEALTHY,POPUNHEALTHY],[POPCOMPLIANT,POPCOMPLIANT],[10000,10000],[SCREENOPHTH,SCREENOPHTH],[UTILNEUTRBLIND,UTILNEUTRBLIND]);
+    fprintf('OPHTH 2 REGIONS %.1f %g \n',costQaly);
+    cost(1,i) = costQaly(1);
+    qaly(1,i) = costQaly(2);
+end
+for i = 1:3
+    costQaly = screenSystemV1h(1,{'Montreal'},[1000000],[POPMIZ1],[POPHEALTHY],[POPCOMPLIANT],[10000],[SCREENNONE],[UTILNEUTRBLIND]);
+    fprintf('NONE %.1f %g\n',costQaly);
+    cost(2,i) = costQaly(1);
+    qaly(2,i) = costQaly(2);
+end
+
+meanCost = mean(cost,2);
+meanQaly = mean(qaly,2);
+for i = 2:NSTRATEGIES % Compare each strategy to strategy 1
+    icer = (meanCost(i) - meanCost(1)) / (meanQaly(i) - meanQaly(1));
+    fprintf('Strategy %d %.2f\n',i,icer);
+end
+
+% for i = 1:3
+%     x = screenSystemV1h(1,['Montreal'],[1000000],[POPMIZ1],[POPUNHEALTHY],[POPCOMPLIANT],[10000],[SCREENNONE],[UTILNEUTRBLIND]);
+%     fprintf('NONE %.1f %f %.1f\n',x(1),x(2),x(1)/x(2));
+% end
+% 
+
